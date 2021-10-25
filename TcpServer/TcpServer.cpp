@@ -9,6 +9,7 @@ unsigned long nonBlockingEnabled = 1;
 unsigned long blockingEnabled = 0;
 
 int serverNonBlockingWithThreads(void);
+int serverNonBlockingWithSelect(void);
 
 void printError(const char* msg)
 {
@@ -25,11 +26,15 @@ int main()
 		return 1;
 	}
 
-	if (serverNonBlockingWithThreads() != 0)
+	// if (serverNonBlockingWithThreads() != 0)
+	// {
+		// return 1;
+	// }
+
+	if (serverNonBlockingWithSelect() != 0)
 	{
 		return 1;
 	}
-
 
 	if (WSACleanup() != 0)
 	{
@@ -55,12 +60,18 @@ void handleClientThread(SOCKET clientSocket)
 		res = recv(clientSocket, recvBufActive, recvBufferRemainingLength, 0);
 		if (res == SOCKET_ERROR)
 		{
-			printError("Error from recv from client : ");
-			closesocket(clientSocket);
+			if (WSAGetLastError() != WSAEWOULDBLOCK)
+			{
+				printError("Error from recv from client : ");
+				closesocket(clientSocket);
+			}
 		}
-		recvLength += res;
-		recvBufActive += res;
-		recvBufferRemainingLength -= res;
+		else
+		{
+			recvLength += res;
+			recvBufActive += res;
+			recvBufferRemainingLength -= res;
+		}
 	} while (res != 0);
 
 	std::cout << "Received: " << recvBuf << std::endl;
@@ -75,6 +86,7 @@ void handleClientThread(SOCKET clientSocket)
 	shutdown(clientSocket, SD_BOTH);
 	closesocket(clientSocket);
 }
+
 
 int serverNonBlockingWithThreads(void)
 {
@@ -129,4 +141,117 @@ int serverNonBlockingWithThreads(void)
 		clientThread.detach();
 	}
 }
+
+int serverNonBlockingWithSelect(void)
+{
+	const SOCKET listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (listenSock == INVALID_SOCKET)
+	{
+		printError("create listen socket");
+		return 1;
+	}
+
+	// address
+	sockaddr_in serverAddress = {};
+	memset(&serverAddress.sin_zero, 0, 8);
+	serverAddress.sin_family = AF_INET;
+	serverAddress.sin_addr.s_addr = INADDR_ANY;
+	serverAddress.sin_port = htons(12345);
+
+	// bind
+	if (bind(listenSock, (sockaddr*)(&serverAddress), sizeof(sockaddr_in)) == SOCKET_ERROR)
+	{
+		printError("bind fail");
+		return 1;
+	}
+
+	// nonblocking
+	ioctlsocket(listenSock, FIONBIO, &nonBlockingEnabled);
+
+
+	// listen
+	if (listen(listenSock, SOMAXCONN) == SOCKET_ERROR)
+	{
+		printError("listen fail");
+		return 1;
+	}
+	std::cout << "I'm listening..." << std::endl;
+
+	constexpr int MAX_CLIENT_SOCKETS = 50;
+	SOCKET clientSockets[MAX_CLIENT_SOCKETS];
+
+	for (unsigned long long& clientSocket : clientSockets)
+	{
+		clientSocket = 0;
+	}
+
+	while (true)
+	{
+		fd_set readfds;
+		FD_ZERO(&readfds);
+
+		FD_SET(listenSock, &readfds);
+		for(int i=0; i < MAX_CLIENT_SOCKETS ; i++)
+		{
+			SOCKET s = clientSockets[i];
+			if (s > 0)
+			{
+				FD_SET(s, &readfds);
+			}
+		}
+
+		int activity = select(0, &readfds, NULL, NULL, NULL);
+		if (activity == SOCKET_ERROR)
+		{
+			if (WSAGetLastError() == WSAEWOULDBLOCK)
+			{
+				continue;
+			}
+			printError("select fail");
+			return 1;
+		}
+		if (FD_ISSET(listenSock, &readfds))
+		{
+			// incoming connection
+			SOCKET newSock;
+			struct sockaddr_in clientAddress;
+			int addrLen = sizeof(sockaddr_in);
+
+			if ((newSock = accept(listenSock, reinterpret_cast<sockaddr*>(&clientAddress), &addrLen)) < 0)
+			{
+				printError("accept");
+				return 1;
+			}
+			if (ioctlsocket(newSock, FIONBIO, &nonBlockingEnabled) == SOCKET_ERROR)
+			{
+				printError("fail to make newSock nonblocking");
+				return 1;
+			}
+
+			for (int i=0; i < MAX_CLIENT_SOCKETS; i++)
+			{
+				if (clientSockets[i] == 0)
+				{
+					clientSockets[i] = newSock;
+					break;
+				}
+			}
+		}
+		else
+		{
+			for (int i = 0; i < MAX_CLIENT_SOCKETS; i++)
+			{
+				SOCKET s = clientSockets[i];
+				if (FD_ISSET(s, &readfds))
+				{
+					// it's readable
+					handleClientThread(s);
+					FD_CLR(s, &readfds);
+					clientSockets[i] = 0;
+				}
+			}
+		}
+	}
+}
+
 
