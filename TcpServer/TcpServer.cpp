@@ -26,15 +26,15 @@ int main()
 		return 1;
 	}
 
-	// if (serverNonBlockingWithThreads() != 0)
-	// {
-		// return 1;
-	// }
-
-	if (serverNonBlockingWithSelect() != 0)
+	if (serverNonBlockingWithThreads() != 0)
 	{
 		return 1;
 	}
+
+	// if (serverNonBlockingWithSelect() != 0)
+	// {
+		// return 1;
+	// }
 
 	if (WSACleanup() != 0)
 	{
@@ -120,7 +120,7 @@ int serverNonBlockingWithThreads(void)
 		printError("listen fail");
 		return 1;
 	}
-	std::cout << "I'm listening..." << std::endl;
+	std::cout << "I'm listening using threads..." << std::endl;
 
 	while(true)
 	{
@@ -132,7 +132,7 @@ int serverNonBlockingWithThreads(void)
 			{
 				printError("Error in accept");
 			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			// std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			continue;
 		}
 		// this will be a blocking socket:
@@ -175,7 +175,7 @@ int serverNonBlockingWithSelect(void)
 		printError("listen fail");
 		return 1;
 	}
-	std::cout << "I'm listening..." << std::endl;
+	std::cout << "I'm listening using select..." << std::endl;
 
 	constexpr int MAX_CLIENT_SOCKETS = 50;
 	SOCKET clientSockets[MAX_CLIENT_SOCKETS];

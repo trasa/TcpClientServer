@@ -30,7 +30,7 @@ int main()
 	sockaddr_in serverAddress = {};
 	memset(&serverAddress.sin_zero, 0, 8);
 	serverAddress.sin_family = AF_INET;
-	if (inet_pton(AF_INET, "10.0.0.185", &serverAddress.sin_addr) != 1) {
+	if (inet_pton(AF_INET, "10.151.1.40", &serverAddress.sin_addr) != 1) {
 		printError("inet pton");
 	}
 	serverAddress.sin_port = htons(12345);
